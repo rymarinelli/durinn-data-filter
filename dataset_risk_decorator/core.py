@@ -166,31 +166,30 @@ class DebertaRiskScorer(IRiskScorer):
 
     def __post_init__(self):
         self.device = self.device or ("cuda" if torch.cuda.is_available() else "cpu")
-
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_path)
         self.model = AutoModelForSequenceClassification.from_pretrained(self.model_path)
-
         self.model.to(self.device)
         self.model.eval()
 
     @torch.no_grad()
-    def score(self, code: str) -> float:
-        if not isinstance(code, str) or not code.strip():
-            return 0.0
+    def score_batch(self, codes: List[str]) -> List[float]:
+        if not codes:
+            return []
 
         inputs = self.tokenizer(
-            code,
+            codes,
             return_tensors="pt",
             truncation=True,
             max_length=512,
             padding=True,
         )
-
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
         logits = self.model(**inputs).logits
         probs = torch.softmax(logits, dim=-1)
+        return probs[:, 1].tolist()
 
-        return float(probs[0, 1])
+    def score(self, code: str) -> float:
+        return self.score_batch([code])[0] if code.strip() else 0.0
 
 # ---------------------------------------------------------------------------
 # Row Annotator
@@ -198,27 +197,39 @@ class DebertaRiskScorer(IRiskScorer):
 
 @dataclass
 class DatasetAnnotator(IDatasetAnnotator):
-    scorer: IRiskScorer
+    scorer: DebertaRiskScorer
     code_columns: List[str]
     threshold: float = 0.5
 
-    def annotate_row(self, row: Dict[str, Any]) -> Dict[str, Any]:
-        codes: List[str] = []
-        for col in self.code_columns:
-            val = row.get(col)
-            if isinstance(val, str):
-                codes.append(val)
+    def annotate_batch(self, batch: Dict[str, List[Any]]) -> Dict[str, List[Any]]:
+        batch_size = len(next(iter(batch.values())))
+        texts = []
+        row_map = []
 
-        if not codes:
-            risk_score = 0.0
-        else:
-            risk_score = float(max(self.scorer.score(code) for code in codes))
+        for i in range(batch_size):
+            codes = [
+                batch[col][i]
+                for col in self.code_columns
+                if isinstance(batch[col][i], str)
+            ]
+            if codes:
+                texts.append(max(codes, key=len))
+                row_map.append(i)
+            else:
+                row_map.append(None)
 
-        new_row = dict(row)
-        new_row["risk_score"] = risk_score
-        new_row["is_problematic"] = bool(risk_score >= self.threshold)
+        scores = self.scorer.score_batch(texts)
+        risk_scores = [0.0] * batch_size
 
-        return new_row
+        j = 0
+        for i in range(batch_size):
+            if row_map[i] is not None:
+                risk_scores[i] = scores[j]
+                j += 1
+
+        batch["risk_score"] = risk_scores
+        batch["is_problematic"] = [s >= self.threshold for s in risk_scores]
+        return batch
 
 # ---------------------------------------------------------------------------
 # Dataset Processor (ANNOTATE + FILTER)
@@ -255,7 +266,9 @@ class DatasetRiskProcessor(IDatasetProcessor):
             )
 
         return dataset.map(
-            annotator.annotate_row,
+            annotator.annotate_batch,
+            batched=True,
+            batch_size=16,
             desc="Annotating dataset with risk scores",
         )
 
