@@ -180,7 +180,7 @@ class DebertaRiskScorer(IRiskScorer):
             codes,
             return_tensors="pt",
             truncation=True,
-            max_length=512,
+            max_length=256,
             padding=True,
         )
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
@@ -268,7 +268,7 @@ class DatasetRiskProcessor(IDatasetProcessor):
         return dataset.map(
             annotator.annotate_batch,
             batched=True,
-            batch_size=16,
+            batch_size=128,
             desc="Annotating dataset with risk scores",
         )
 
