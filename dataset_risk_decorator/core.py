@@ -323,33 +323,24 @@ def _get_default_scorer():
     return _DEFAULT_SCORER
 
 
-def _make_decorator(
+def risk_guard(
+    dataset: Dataset | DatasetDict,
     *,
-    threshold=0.5,
-    filter_mode="none",
-    max_rows=None,
-):
-    return DatasetRiskDecorator(
+    threshold: float = 0.5,
+    filter_mode: Literal["none", "keep_safe", "keep_problematic"] = "none",
+    max_rows: Optional[int] = None,
+) -> Dataset | DatasetDict:
+    """
+    Annotate a Hugging Face Dataset or DatasetDict with risk scores.
+    """
+
+    processor = DatasetRiskProcessor(
         scorer=_get_default_scorer(),
-        threshold=threshold,
-        filter_mode=filter_mode,
-        max_rows=max_rows,
+        config=DatasetRiskConfig(
+            threshold=threshold,
+            filter_mode=filter_mode,
+            max_rows=max_rows,
+        ),
     )
 
-
-def risk_guard(_fn=None, **kwargs):
-    """
-    Usage:
-      @risk_guard
-      @risk_guard(threshold=0.3, max_rows=1000)
-    """
-
-    def decorator(fn):
-        return _make_decorator(**kwargs)(fn)
-
-    # Case 1: used as @risk_guard
-    if _fn is not None and callable(_fn):
-        return decorator(_fn)
-
-    # Case 2: used as @risk_guard(...)
-    return decorator
+    return processor.process(dataset)
