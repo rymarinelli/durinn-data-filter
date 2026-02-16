@@ -21,13 +21,13 @@ Designed for:
 * Security research workflows
 
 ## Maintainer
-
+<!--
 **Durinn Research**
 [victor@durinn.ai](mailto:victor@durinn.ai)
 [ryan@durinn.ai](mailto:ryan@durinn.ai)
 [https://huggingface.co/durinn](https://huggingface.co/durinn)
 [https://durinn.ai](https://durinn.ai)
-
+!-->
 ## Features
 
 * Works with `datasets.Dataset` and `datasets.DatasetDict`
